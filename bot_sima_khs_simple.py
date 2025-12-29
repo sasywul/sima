@@ -10,11 +10,11 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # =========================
-# ENV CONFIG (AMAN)
+# ENV CONFIG
 # =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 BASE_API = os.getenv("SIMA_BASE_API")
-PROXY_URL = os.getenv("PROXY_URL")  # optional (untuk Railway)
+PROXY_URL = os.getenv("PROXY_URL")  # opsional
 
 if not BOT_TOKEN or not BASE_API:
     raise RuntimeError("ENV BOT_TOKEN / SIMA_BASE_API belum diset")
@@ -36,7 +36,7 @@ OKHTTP_HEADERS = {
     "User-Agent": "okhttp/4.9.0",
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "Accept-Encoding": "identity",  # matikan gzip (penting di cloud)
+    "Accept-Encoding": "identity",
     "Connection": "close"
 }
 
@@ -77,19 +77,25 @@ def fetch_khs(nim: str, password: str) -> str:
         return (
             "🚫 *Akses dibatasi oleh server kampus*\n\n"
             "Permintaan dari bot ditolak oleh sistem kampus.\n"
-            "Silakan coba lagi beberapa saat atau hubungi admin."
+            "Silakan coba lagi nanti."
         )
 
     login_data = safe_json(login_resp)
     if not login_data or not isinstance(login_data, dict):
         return "❌ Login gagal (response tidak valid dari server)"
 
-    if not login_data.get("result"):
-        return "❌ Login gagal. Periksa NIM / PASSWORD."
+    result = login_data.get("result", {})
+    message = login_data.get("message", "")
 
-    token = login_data["result"].get("token")
-    if not token:
-        return "❌ Token tidak ditemukan"
+    # === LOGIN GAGAL (PASSWORD SALAH) ===
+    if result.get("st") == "0" or not result.get("token"):
+        return (
+            "❌ *Login gagal*\n\n"
+            "NIM atau password yang kamu masukkan salah.\n"
+            "Silakan periksa kembali dan coba lagi."
+        )
+
+    token = result.get("token")
 
     # === AMBIL KHS ===
     headers = OKHTTP_HEADERS.copy()
