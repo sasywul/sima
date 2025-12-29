@@ -1,13 +1,19 @@
+# =========================
+# LOAD ENV (.env untuk lokal)
+# =========================
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # =========================
-# CONFIG DARI ENV (AMAN)
+# ENV CONFIG
 # =========================
-BOT_TOKEN = os.getenv("BOT_TOKEN")          # token bot Telegram
-BASE_API = os.getenv("SIMA_BASE_API")       # contoh: https://sima.usm.ac.id/index.php
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BASE_API = os.getenv("SIMA_BASE_API")
 
 if not BOT_TOKEN or not BASE_API:
     raise RuntimeError("ENV BOT_TOKEN / SIMA_BASE_API belum diset")
@@ -17,60 +23,67 @@ if not BOT_TOKEN or not BASE_API:
 # =========================
 OKHTTP_HEADERS = {
     "User-Agent": "okhttp/4.9.0",
-    "Accept-Encoding": "gzip",
-    "Connection": "Keep-Alive",
     "Accept": "application/json",
     "Content-Type": "application/json",
+    "Accept-Encoding": "identity",  # matikan gzip (penting di cloud)
+    "Connection": "close"
 }
 
 # =========================
-# FUNGSI AMBIL KHS
+# SAFE JSON HELPER
+# =========================
+def safe_json(resp):
+    try:
+        return resp.json()
+    except Exception:
+        return None
+
+# =========================
+# FETCH KHS
 # =========================
 def fetch_khs(nim: str, password: str) -> str:
     session = requests.Session()
 
-    # 1️⃣ LOGIN API
+    # === LOGIN ===
     login_resp = session.patch(
         f"{BASE_API}/api/login/sia",
         json={"username": nim, "password": password},
         headers=OKHTTP_HEADERS,
-        timeout=20
+        timeout=30,
+        allow_redirects=False
     )
 
-    try:
-        login_data = login_resp.json()
-    except Exception:
-        return "❌ Login gagal (response tidak valid)"
+    login_data = safe_json(login_resp)
+    if not login_data or not isinstance(login_data, dict):
+        return "❌ Login gagal (response tidak valid dari server)"
 
-    if not isinstance(login_data, dict) or not login_data.get("result"):
+    if not login_data.get("result"):
         return "❌ Login gagal. Periksa NIM / PASSWORD."
 
     token = login_data["result"].get("token")
     if not token:
-        return "❌ Token tidak ditemukan."
+        return "❌ Token tidak ditemukan"
 
-    # 2️⃣ AMBIL KHS
+    # === AMBIL KHS ===
     headers = OKHTTP_HEADERS.copy()
-    headers["Authorization"] = token  # TANPA 'Bearer'
+    headers["Authorization"] = token  # TANPA Bearer
 
     khs_resp = session.put(
         f"{BASE_API}/api/his_pend/khs",
         headers=headers,
-        timeout=20
+        timeout=30,
+        allow_redirects=False
     )
 
-    try:
-        khs_data = khs_resp.json()
-    except Exception:
-        return "❌ Gagal membaca data KHS"
+    khs_data = safe_json(khs_resp)
+    if not khs_data or not isinstance(khs_data.get("result"), dict):
+        return "❌ Tidak bisa ambil KHS (diblokir server / session invalid)"
 
-    result = khs_data.get("result")
-    if not isinstance(result, dict):
-        return "❌ Data KHS tidak tersedia"
+    result = khs_data["result"]
+    histori = result.get("histori_khs", [])
 
     mhs = result.get("mhs", {})
     prodi = result.get("prodi", {})
-    histori = result.get("histori_khs", [])
 
     nama = mhs.get("nama_mahasiswa", "-")
     nim_val = mhs.get("nim", "-")
@@ -113,11 +126,150 @@ async def khs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nim, password = context.args
     await update.message.reply_text("⏳ Mengambil data KHS...")
 
+    result = fetch_khs(nim, password)
+    await update.message.reply_text(result, parse_mode="Markdown")
+
+# =========================
+# MAIN
+# =========================
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("khs", khs_cmd))
+    print("🤖 Bot SIMA Telegram berjalan...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
+# =========================
+# LOAD ENV (.env untuk lokal)
+# =========================
+from dotenv import load_dotenv
+load_dotenv()
+
+import os
+import requests
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+# =========================
+# ENV CONFIG
+# =========================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BASE_API = os.getenv("SIMA_BASE_API")
+
+if not BOT_TOKEN or not BASE_API:
+    raise RuntimeError("ENV BOT_TOKEN / SIMA_BASE_API belum diset")
+
+# =========================
+# HEADER MENIRU OKHTTP
+# =========================
+OKHTTP_HEADERS = {
+    "User-Agent": "okhttp/4.9.0",
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "Accept-Encoding": "identity",  # matikan gzip (penting di cloud)
+    "Connection": "close"
+}
+
+# =========================
+# SAFE JSON HELPER
+# =========================
+def safe_json(resp):
     try:
-        result = fetch_khs(nim, password)
-        await update.message.reply_text(result, parse_mode="Markdown")
+        return resp.json()
     except Exception:
-        await update.message.reply_text("❌ Terjadi kesalahan sistem")
+        return None
+
+# =========================
+# FETCH KHS
+# =========================
+def fetch_khs(nim: str, password: str) -> str:
+    session = requests.Session()
+
+    # === LOGIN ===
+    login_resp = session.patch(
+        f"{BASE_API}/api/login/sia",
+        json={"username": nim, "password": password},
+        headers=OKHTTP_HEADERS,
+        timeout=30,
+        allow_redirects=False
+    )
+
+    login_data = safe_json(login_resp)
+    if not login_data or not isinstance(login_data, dict):
+        return "❌ Login gagal (response tidak valid dari server)"
+
+    if not login_data.get("result"):
+        return "❌ Login gagal. Periksa NIM / PASSWORD."
+
+    token = login_data["result"].get("token")
+    if not token:
+        return "❌ Token tidak ditemukan"
+
+    # === AMBIL KHS ===
+    headers = OKHTTP_HEADERS.copy()
+    headers["Authorization"] = token  # TANPA Bearer
+
+    khs_resp = session.put(
+        f"{BASE_API}/api/his_pend/khs",
+        headers=headers,
+        timeout=30,
+        allow_redirects=False
+    )
+
+    khs_data = safe_json(khs_resp)
+    if not khs_data or not isinstance(khs_data.get("result"), dict):
+        return "❌ Tidak bisa ambil KHS (diblokir server / session invalid)"
+
+    result = khs_data["result"]
+    histori = result.get("histori_khs", [])
+
+    mhs = result.get("mhs", {})
+    prodi = result.get("prodi", {})
+
+    nama = mhs.get("nama_mahasiswa", "-")
+    nim_val = mhs.get("nim", "-")
+    prodi_nama = prodi.get("programstudi", "-").strip()
+    fakultas = prodi.get("fakultas", "-")
+
+    text = (
+        f"🎓 *KARTU HASIL STUDI*\n"
+        f"👤 {nama}\n"
+        f"🆔 {nim_val}\n"
+        f"🏫 {prodi_nama}\n"
+        f"🏢 {fakultas}\n\n"
+    )
+
+    if not histori:
+        return text + "_Belum ada data KHS_"
+
+    for h in histori:
+        ips = h.get("ips")
+        ips_text = ips if ips is not None else "Belum ada nilai"
+
+        text += (
+            f"📚 *{h.get('nama_semester','-')}*\n"
+            f"• IPS : {ips_text}\n"
+            f"• SKS : {h.get('jm_sks','-')}\n"
+            f"• MK  : {h.get('jm_mk','-')}\n"
+            f"• Status : {h.get('status_kuliah','-')}\n\n"
+        )
+
+    return text.strip()
+
+# =========================
+# COMMAND /khs
+# =========================
+async def khs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2:
+        await update.message.reply_text("Format:\n/khs NIM PASSWORD")
+        return
+
+    nim, password = context.args
+    await update.message.reply_text("⏳ Mengambil data KHS...")
+
+    result = fetch_khs(nim, password)
+    await update.message.reply_text(result, parse_mode="Markdown")
 
 # =========================
 # MAIN
