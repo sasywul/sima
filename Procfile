@@ -1,1 +1,1 @@
-worker: python bot_sima_khs_simple.py
+worker: python main.py
