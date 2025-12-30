@@ -1,0 +1,134 @@
+import asyncio
+import time
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+from config import SESSION_EXPIRE
+import api_service as api
+
+# --- UI GENERATOR (PRESENSI) ---
+def generate_jadwal_view(token, nama, kode_khusus):
+    jadwal = api.api_get_jadwal(token, kode_khusus)
+    tgl = datetime.now().strftime("%A, %d %B %Y")
+    jam = datetime.now().strftime("%H:%M")
+    
+    text = f"📅 <b>JADWAL HARI INI</b>\n👤 {nama}\n🗓️ {tgl} (Upd: {jam})\n─────────────────\n\n"
+    keyboard = []
+
+    if not jadwal:
+        text += "<i>ℹ️ Tidak ada jadwal kuliah hari ini.</i>"
+        return text, None
+
+    for j in jadwal:
+        matkul = j['nm_makul']
+        waktu = j['jam']
+        ruang = j['ruang']
+        
+        raw_st = j.get("st_presensi")
+        status_buka = str(j.get("status_presensi")) == "1"
+        sudah_hadir = False
+        ket_status = "-"
+
+        if isinstance(raw_st, dict):
+            ket_status = raw_st.get("st_presensi", "Hadir")
+            sudah_hadir = True
+        elif isinstance(raw_st, str):
+            ket_status = raw_st
+            if raw_st in ["Hadir", "Terlambat", "On Time", "Ijin", "Sakit"]:
+                sudah_hadir = True
+        
+        if sudah_hadir:
+            icon = "✅"
+            status_txt = f"Sudah Absen ({ket_status})"
+        elif status_buka:
+            icon = "📘"
+            status_txt = "Silahkan Klik Presensi"
+        else:
+            icon = "🔴"
+            status_txt = "Tutup / Belum Buka"
+
+        text += f"{icon} <b>{matkul}</b>\n   ├ 🕒 {waktu} | 🏫 {ruang}\n   └ ℹ️ {status_txt}\n\n"
+
+        # Filter Tombol: Hanya jika BUKA dan BELUM HADIR
+        if status_buka and not sudah_hadir:
+            keyboard.append([InlineKeyboardButton(f"👆 KLIK HADIR: {matkul}", callback_data=f"presensi|{j['id_jadwal']}")])
+
+    return text, InlineKeyboardMarkup(keyboard) if keyboard else None
+
+# --- HANDLERS ---
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "🤖 <b>Bot Akademik USM (Integrated)</b>\n\n"
+        "1️⃣ <code>/presensi NIM PASS</code> - Cek & Absen\n"
+        "2️⃣ <code>/nilai NIM PASS</code> - Cek Transkrip\n"
+        "3️⃣ <code>/rekap NIM PASS</code> - Cek Rekap Absensi\n"
+        "4️⃣ <code>/auto_khs NIM PASS</code> - Isi Otomatis BPM\n"
+    )
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+async def presensi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try: await context.bot.delete_message(update.message.chat_id, update.message.message_id)
+    except: pass
+    if len(context.args) != 2: return await update.message.reply_text("Format: `/presensi NIM PASS`")
+    msg = await update.message.reply_text("🔐 <i>Login...</i>", parse_mode="HTML")
+    
+    login_res = await asyncio.to_thread(api.api_login_android, context.args[0], context.args[1])
+    if not login_res: return await msg.edit_text("❌ <b>Login Gagal</b>", parse_mode="HTML")
+
+    token = login_res["token"]
+    nama = login_res.get("nama", "Mhs")
+    kode_khusus = await asyncio.to_thread(api.api_get_biodata, token)
+
+    context.user_data.update({"token": token, "kode_khusus": kode_khusus, "nama": nama, "login_at": time.time()})
+    
+    text, markup = await asyncio.to_thread(generate_jadwal_view, token, nama, kode_khusus)
+    await msg.delete()
+    await context.bot.send_message(update.effective_chat.id, text, parse_mode="HTML", reply_markup=markup)
+
+async def presensi_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    sess = context.user_data
+    if "token" not in sess: return await query.answer("⚠️ Sesi habis.", show_alert=True)
+
+    _, id_jadwal_target = query.data.split("|")
+    await query.answer("🚀 Memproses...")
+
+    jadwal = await asyncio.to_thread(api.api_get_jadwal, sess["token"], sess["kode_khusus"])
+    target = next((x for x in jadwal if str(x['id_jadwal']) == id_jadwal_target), None)
+
+    if target:
+        res = await asyncio.to_thread(api.api_execute_presensi, sess["token"], sess["kode_khusus"], target["id_presensi"])
+        if str(res.get("status")) == "200":
+            await query.answer("✅ Berhasil!", show_alert=True)
+            try: await query.message.delete()
+            except: pass
+            text, markup = await asyncio.to_thread(generate_jadwal_view, sess["token"], sess["nama"], sess["kode_khusus"])
+            await context.bot.send_message(query.message.chat_id, text, parse_mode="HTML", reply_markup=markup)
+        else:
+            await query.answer(f"❌ {res.get('message')}", show_alert=True)
+
+async def nilai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2: return await update.message.reply_text("Format: `/nilai NIM PASS`")
+    msg = await update.message.reply_text("⏳ Ambil Nilai...")
+    res = await asyncio.to_thread(api.fetch_nilai_api, context.args[0], context.args[1])
+    await msg.edit_text(res, parse_mode="Markdown")
+
+async def rekap_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2: return await update.message.reply_text("Format: `/rekap NIM PASS`")
+    msg = await update.message.reply_text("⏳ Hitung Rekap...")
+    res = await asyncio.to_thread(api.fetch_rekap_api, context.args[0], context.args[1])
+    if len(res) > 4000: res = res[:4000] + "\n...(terpotong)"
+    await msg.edit_text(res, parse_mode="Markdown")
+
+async def auto_khs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2: return await update.message.reply_text("Format: `/auto_khs NIM PASS`")
+    msg = await update.message.reply_text("⏳ *Sedang Cek Tagihan & Scan BPM...*", parse_mode="Markdown")
+    
+    def process():
+        sess = api.get_web_session(context.args[0], context.args[1])
+        if sess == "WRONG_PASS": return "❌ *Password Salah!*"
+        if not sess: return "❌ Gagal Login Web."
+        return api.scan_and_solve_khs(sess)
+
+    res = await asyncio.to_thread(process)
+    await msg.edit_text(res, parse_mode="Markdown")
