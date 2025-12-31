@@ -278,7 +278,7 @@ def scan_and_solve_khs(session):
             if not forms: continue
             
             processed_any = True
-            results.append(f"⚠️ Semester {idx+1}: Mengisi {len(forms)} Kuesioner...")
+            results.append(f" Semester {idx+1}: Mengisi {len(forms)} Kuesioner...")
             
             # 4. ISI KUESIONER (LOGIKA MANTAP)
             url_save = "https://sima.usm.ac.id/histori_pendidikan/khs/save_bpm_khs"
