@@ -56,7 +56,7 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # 5. Kirim ke Google Gemini
         # Menggunakan model 'gemini-1.5-flash' yang gratis di AI Studio
-        model = genai.GenerativeModel('gemini-pro-vision')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content([prompt, img])
         
         # 6. Kirim Balasan
