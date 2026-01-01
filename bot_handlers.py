@@ -6,60 +6,35 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
-import os
-
-# --- HELPER: UPLOAD KE TELEGRA.PH ---
-def upload_to_telegraph(file_path_local):
-    try:
-        url_upload = "https://telegra.ph/upload"
-        with open(file_path_local, 'rb') as f:
-            files = {'file': ('foto.jpg', f, 'image/jpeg')}
-            response = requests.post(url_upload, files=files)
-        
-        data = response.json()
-        if data and isinstance(data, list) and 'src' in data[0]:
-            return "https://telegra.ph" + data[0]['src']
-        return None
-    except Exception as e:
-        print(f"Gagal Upload Telegraph: {e}")
-        return None
-
-# --- FUNGSI TRAWANG (POLLINATIONS AI) ---
+import os   
+import base64
+# --- FUNGSI TRAWANG (POLLINATIONS VIA BASE64) ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
-    # 1. Kasih status typing
+    # 1. Kasih status "sedang mengetik"
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
-
-    file_sementara = f"temp_{user.id}.jpg"
+    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang aura Kak {user.first_name}...")
 
     try:
-        # 2. Download Foto
+        # 2. Download Foto dari Telegram ke Memori (RAM)
+        # Kita tidak perlu simpan ke file, langsung olah di RAM biar cepat
         photo_file = await update.message.photo[-1].get_file()
-        await photo_file.download_to_drive(file_sementara)
-
-        # 3. Upload ke Telegra.ph
-        public_url = upload_to_telegraph(file_sementara)
+        photo_bytes = await photo_file.download_as_bytearray()
         
-        # Hapus file lokal langsung biar bersih
-        if os.path.exists(file_sementara):
-            os.remove(file_sementara)
+        # 3. Ubah Foto jadi Kode Base64
+        # Ini triknya! Foto diubah jadi teks panjang biar bisa dibaca AI
+        base64_image = base64.b64encode(photo_bytes).decode('utf-8')
+        url_gambar_base64 = f"data:image/jpeg;base64,{base64_image}"
 
-        if not public_url:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text("Gagal upload gambar ke Telegra.ph. Coba lagi.")
-            return
-
-        # 4. Tembak API Pollinations (Format GPT-4 Vision)
-        # API ini Gratis dan support format OpenAI
-        url_api = "https://text.pollinations.ai/"
+        # 4. Tembak API Pollinations (Format OpenAI)
+        url_api = "https://text.pollinations.ai/openai"
         
         headers = {
             "Content-Type": "application/json"
         }
         
-        # Prompt (Mantra Dukun)
+        # Mantra Dukun
         prompt_text = "Lihat foto ini. Kamu adalah dukun gaul yang lucu dan sarkas. Ramal kepribadian, percintaan, dan keuangannya minggu ini. Pakai bahasa Indonesia gaul."
 
         payload = {
@@ -68,31 +43,36 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt_text},
-                        {"type": "image_url", "image_url": {"url": public_url}}
+                        {
+                            "type": "image_url", 
+                            "image_url": {"url": url_gambar_base64} # Kirim kode fotonya langsung!
+                        }
                     ]
                 }
             ],
-            "model": "openai-large", # Menggunakan model besar biar pintar baca gambar
+            "model": "openai-large", # Model besar biar tajam mata batinnya
             "json": False
         }
 
         # Kirim Request (POST)
         response = requests.post(url_api, json=payload, headers=headers)
         
-        # 5. Hasil
+        # 5. Cek Hasil
         if response.status_code == 200:
-            hasil_teks = response.text
+            # Pollinations kadang balikin teks langsung, kadang JSON. Kita amanin dua-duanya.
+            try:
+                hasil_teks = response.choices[0].message.content # Kalau format OpenAI
+            except:
+                hasil_teks = response.text # Kalau format teks biasa
             
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text(f"🔮 **RAMALAN AI** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
+            await update.message.reply_text(f"🔮 **RAMALAN DUKUN AI** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
             await update.message.reply_text(f"Dukunnya pusing (Error {response.status_code}). Coba lagi nanti.")
 
     except Exception as e:
         print(f"Error System: {e}")
-        if os.path.exists(file_sementara):
-            os.remove(file_sementara)
-        await update.message.reply_text("😵 Ada gangguan teknis.")
+        await update.message.reply_text("😵 Ada gangguan teknis saat menerawang.")
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
