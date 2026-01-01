@@ -254,7 +254,7 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     ],
                 }
             ],
-            model="llama-3.2-11b-vision-preview", # Model Gratis & Cepat
+            model="llama-3.2-90b-vision-preview",
         )
 
         # 6. Balas ke User
