@@ -7,33 +7,36 @@ from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
 
-# --- FUNGSI TRAWANG (ANDRE API - COPILOT) ---
+from telegram import Update
+from telegram.ext import ContextTypes
+import requests
+import os
+
+# --- FUNGSI START ---
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await update.message.reply_text(f"Halo Kak {user.first_name}! 👋\n\nKirim fotomu, nanti saya ramal pakai AI GPTNano (Spesialis Gambar)! 🔮")
+
+# --- FUNGSI TRAWANG (ANDRE API - GPTNANO) ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     # 1. Kasih status "typing"
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Copilot sedang melirik wajah Kak {user.first_name}...")
+    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
 
     try:
         # 2. Ambil Link Gambar dari Telegram
         photo_file = await update.message.photo[-1].get_file()
         image_url = photo_file.file_path
 
-        # 3. Tembak API Andre (Versi Copilot)
-        # Sesuai screenshot yang baru
-        url_api = "https://magma-api.biz.id/ai/copilot"
+        # 3. Tembak API Andre (Versi GPTNano)
+        # Endpoint ini punya parameter 'imageUrl' (Lihat screenshot Anda)
+        url_api = "https://magma-api.biz.id/ai/gptnano"
         
-        # Kita coba kirim parameter prompt. 
-        # (Kita selipkan imageUrl siapa tahu dia mau baca)
-        prompt_text = "Deskripsikan visual orang di foto ini. Ramal sifat dan keuangannya dengan gaya dukun lucu."
-        
-        # Copilot di web Andre API cuma minta 'prompt', tapi kita coba akali dengan menggabungkan link di prompt
-        # Karena di screenshot tidak ada kolom 'imageUrl' khusus.
-        final_prompt = f"{prompt_text} [Lihat Gambar ini: {image_url}]"
-
         payload = {
-            "prompt": final_prompt
+            "prompt": "Deskripsikan orang di foto ini. Ramal sifat, percintaan, dan keuangannya dengan gaya dukun lucu dan sarkas.",
+            "imageUrl": image_url 
         }
 
         # Kirim request (GET)
@@ -41,19 +44,19 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         data = response.json()
 
         # 4. Ambil Hasilnya
-        # Sesuai screenshot: data['result']['response']
+        # Format JSON: data['result']['response']
         if data.get('status') == True:
             hasil_teks = data['result']['response']
             
             # Kirim Balasan
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text(f"🔮 **HASIL TERAWANGAN COPILOT** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
+            await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
-            await update.message.reply_text("Dukun Copilot lagi pusing (API Error). Coba lagi nanti.")
+            await update.message.reply_text("Waduh, dukunnya gagal konek. Coba kirim foto lain.")
 
     except Exception as e:
         print(f"Error: {e}")
-        await update.message.reply_text("😵 Gagal terhubung ke Andre API. Coba kirim foto lain.")
+        await update.message.reply_text("😵 Maaf, ada gangguan sinyal ke dunia gaib (API Error).")
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
