@@ -7,49 +7,53 @@ from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
 
-# --- FUNGSI TRAWANG (PAKAI NYXS API) ---
+# --- FUNGSI TRAWANG (ANDRE API - COPILOT) ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     # 1. Kasih status "typing"
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
+    msg_loading = await update.message.reply_text(f"👁️ Copilot sedang melirik wajah Kak {user.first_name}...")
 
     try:
         # 2. Ambil Link Gambar dari Telegram
         photo_file = await update.message.photo[-1].get_file()
         image_url = photo_file.file_path
+
+        # 3. Tembak API Andre (Versi Copilot)
+        # Sesuai screenshot yang baru
+        url_api = "https://magma-api.biz.id/ai/copilot"
         
-        # 3. Tembak API Nyxs (Spesialis Vision)
-        # API ini gratis dan menggunakan Gemini Vision di belakang layar
-        url_api = "https://api.nyxs.pw/ai/gemini-vision"
+        # Kita coba kirim parameter prompt. 
+        # (Kita selipkan imageUrl siapa tahu dia mau baca)
+        prompt_text = "Deskripsikan visual orang di foto ini. Ramal sifat dan keuangannya dengan gaya dukun lucu."
         
-        prompt_teks = "Deskripsikan orang di foto ini dengan gaya dukun lucu dan sarkas. Ramal keuangannya minggu ini. Pakai bahasa gaul."
+        # Copilot di web Andre API cuma minta 'prompt', tapi kita coba akali dengan menggabungkan link di prompt
+        # Karena di screenshot tidak ada kolom 'imageUrl' khusus.
+        final_prompt = f"{prompt_text} [Lihat Gambar ini: {image_url}]"
 
         payload = {
-            "text": prompt_teks,
-            "image": image_url
+            "prompt": final_prompt
         }
 
-        # Kirim request
+        # Kirim request (GET)
         response = requests.get(url_api, params=payload)
         data = response.json()
 
-        # 4. Cek Hasil
-        # Format response Nyxs biasanya: {'status': True, 'result': '...teks...'}
+        # 4. Ambil Hasilnya
+        # Sesuai screenshot: data['result']['response']
         if data.get('status') == True:
-            hasil_teks = data['result']
+            hasil_teks = data['result']['response']
             
             # Kirim Balasan
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
+            await update.message.reply_text(f"🔮 **HASIL TERAWANGAN COPILOT** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
-            await update.message.reply_text("😵 Dukunnya lagi merem (API Gagal). Coba foto lain.")
+            await update.message.reply_text("Dukun Copilot lagi pusing (API Error). Coba lagi nanti.")
 
     except Exception as e:
         print(f"Error: {e}")
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-        await update.message.reply_text("😵 Koneksi ke server dukun terputus. Coba lagi nanti.")
+        await update.message.reply_text("😵 Gagal terhubung ke Andre API. Coba kirim foto lain.")
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
