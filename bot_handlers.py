@@ -6,71 +6,51 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
-import google.generativeai as genai
-from PIL import Image
-import io
-import os
 
-# --- KONFIGURASI AI ---
-# Mengambil kunci dari Railway (Variable: GEMINI_API_KEY)
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
-
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-
-    # --- FUNGSI TRAWANG (AI GEMINI) ---
+# --- FUNGSI TRAWANG (PAKAI ANDRE API) ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. Cek Kunci
-    if not GEMINI_KEY:
-        await update.message.reply_text("⚠️ Waduh, API Key Google belum dipasang di Railway bos.")
-        return
-
     user = update.effective_user
     
-    # 2. Kasih efek "Sedang mengetik..." biar keren
+    # 1. Kasih status "typing"
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang aura wajah Kak {user.first_name}...")
+    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
 
     try:
-        # 3. Download Foto dari Chat
-        # Ambil foto resolusi paling tinggi
+        # 2. Ambil Link Gambar dari Telegram
+        # Kita butuh URL gambar supaya bisa dibaca sama Andre API
         photo_file = await update.message.photo[-1].get_file()
-        img_byte_arr = io.BytesIO()
-        await photo_file.download_to_memory(out=img_byte_arr)
-        img_byte_arr.seek(0)
         
-        # Buka gambar pakai library Pillow
-        img = Image.open(img_byte_arr)
+        # Trik: Ambil URL file langsung dari server Telegram
+        # (Format: https://api.telegram.org/file/bot<TOKEN>/<FILE_PATH>)
+        image_url = photo_file.file_path
 
-        # 4. Mantra (Prompt) untuk AI
-        prompt = """
-        Lihat foto ini baik-baik. Kamu adalah dukun digital yang lucu, gaul, dan agak sarkas.
+        # 3. Tembak API Andre (Magma API)
+        # Sesuai screenshot yang kamu kirim
+        url_api = "https://magma-api.biz.id/ai/gptnano"
         
-        Tugasmu:
-        1. Komentari ekspresi wajahnya (misal: lagi sedih, bahagia, atau muka bantal).
-        2. Ramal nasib percintaan dan keuangannya minggu ini.
-        3. Kasih satu nasihat konyol.
-        
-        Gunakan bahasa Indonesia santai ala anak muda. Jangan kaku.
-        """
+        payload = {
+            "prompt": "Deskripsikan gambar ini dengan gaya dukun lucu dan sarkas. Ramal keuangannya.",
+            "imageUrl": image_url
+        }
 
-        # 5. Kirim ke Google Gemini
-        # Menggunakan model 'gemini-1.5-flash' yang gratis di AI Studio
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content([prompt, img])
-        
-        # 6. Kirim Balasan
-        # Hapus pesan "Sedang menerawang..."
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-        
-        # Kirim hasil ramalan
-        await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{response.text}", parse_mode="Markdown")
+        # Kirim request (GET)
+        response = requests.get(url_api, params=payload)
+        data = response.json()
+
+        # 4. Ambil Hasilnya
+        # Sesuai contoh JSON di screenshot: data['result']['response']
+        if data.get('status') == True:
+            hasil_teks = data['result']['response']
+            
+            # Kirim Balasan
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+            await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("Dukunnya lagi pusing (API Error). Coba lagi nanti.")
 
     except Exception as e:
-        # Kalau ada error, bot akan lapor
-        print(f"Error AI: {e}")
-        await update.message.reply_text("😵 Mata batin saya lagi rabun (Error koneksi ke Google). Coba kirim foto yang lebih jelas atau coba lagi nanti.")
-
+        print(f"Error: {e}")
+        await update.message.reply_text("😵 Gagal terhubung ke Andre API. Coba kirim foto lain.")
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
