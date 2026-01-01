@@ -8,94 +8,85 @@ from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
 import os
 
-# --- FUNGSI BANTUAN: UPLOAD KE FREEIMAGE.HOST ---
-def upload_to_freeimage(file_path_local):
-    """
-    Mengupload file ke Freeimage.host sesuai dokumentasi API v1.
-    """
+# --- HELPER: UPLOAD KE TELEGRA.PH ---
+def upload_to_telegraph(file_path_local):
     try:
-        url_upload = "https://freeimage.host/api/1/upload"
-        # Kunci API dari screenshot kamu
-        api_key = "6d207e02198a847aa98d0a2a901485a5" 
-        
-        # Data wajib sesuai screenshot dokumentasi
-        payload = {
-            'key': api_key,
-            'action': 'upload',
-            'format': 'json'
-        }
-        
-        # Buka file dan kirim sebagai parameter 'source'
+        url_upload = "https://telegra.ph/upload"
         with open(file_path_local, 'rb') as f:
-            files = {'source': f}
-            response = requests.post(url_upload, data=payload, files=files)
+            files = {'file': ('foto.jpg', f, 'image/jpeg')}
+            response = requests.post(url_upload, files=files)
         
-        # Cek hasil response JSON
-        if response.status_code == 200:
-            data = response.json()
-            # Ambil link dari: data['image']['url'] sesuai contoh JSON
-            if data.get('status_code') == 200:
-                return data['image']['url']
-            else:
-                print(f"Gagal Upload: {data}")
-                return None
-        else:
-            return None
-
+        data = response.json()
+        if data and isinstance(data, list) and 'src' in data[0]:
+            return "https://telegra.ph" + data[0]['src']
+        return None
     except Exception as e:
-        print(f"Error Freeimage: {e}")
+        print(f"Gagal Upload Telegraph: {e}")
         return None
 
-# --- FUNGSI TRAWANG UTAMA ---
+# --- FUNGSI TRAWANG (POLLINATIONS AI) ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
-    # 1. Kasih status loading
+    # 1. Kasih status typing
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Sedang memproses foto Kak {user.first_name}...")
+    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
 
     file_sementara = f"temp_{user.id}.jpg"
 
     try:
-        # 2. Download Foto dari Telegram
+        # 2. Download Foto
         photo_file = await update.message.photo[-1].get_file()
         await photo_file.download_to_drive(file_sementara)
 
-        # 3. Upload ke Freeimage.host
-        public_url = upload_to_freeimage(file_sementara)
-
-        if not public_url:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text("Gagal upload gambar ke server Freeimage. Coba lagi.")
-            if os.path.exists(file_sementara):
-                os.remove(file_sementara)
-            return
-
-        # 4. Tembak API Andre (GPTNano)
-        # Link dari Freeimage.host (public_url) dikirim ke sini
-        url_api = "https://magma-api.biz.id/ai/gptnano"
+        # 3. Upload ke Telegra.ph
+        public_url = upload_to_telegraph(file_sementara)
         
-        payload = {
-            "prompt": "Deskripsikan visual orang di foto ini. Ramal sifat, asmara, dan keuangan minggu ini dengan gaya dukun lucu dan sarkas.",
-            "imageUrl": public_url 
-        }
-
-        # Kirim Request
-        response = requests.get(url_api, params=payload)
-        data = response.json()
-
-        # 5. Hapus file sampah
+        # Hapus file lokal langsung biar bersih
         if os.path.exists(file_sementara):
             os.remove(file_sementara)
 
-        # 6. Tampilkan Hasil
-        if data.get('status') == True:
-            hasil_teks = data['result']['response']
+        if not public_url:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+            await update.message.reply_text("Gagal upload gambar ke Telegra.ph. Coba lagi.")
+            return
+
+        # 4. Tembak API Pollinations (Format GPT-4 Vision)
+        # API ini Gratis dan support format OpenAI
+        url_api = "https://text.pollinations.ai/"
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # Prompt (Mantra Dukun)
+        prompt_text = "Lihat foto ini. Kamu adalah dukun gaul yang lucu dan sarkas. Ramal kepribadian, percintaan, dan keuangannya minggu ini. Pakai bahasa Indonesia gaul."
+
+        payload = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {"type": "image_url", "image_url": {"url": public_url}}
+                    ]
+                }
+            ],
+            "model": "openai-large", # Menggunakan model besar biar pintar baca gambar
+            "json": False
+        }
+
+        # Kirim Request (POST)
+        response = requests.post(url_api, json=payload, headers=headers)
+        
+        # 5. Hasil
+        if response.status_code == 200:
+            hasil_teks = response.text
             
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text(f"🔮 **RAMALAN DUKUN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
+            await update.message.reply_text(f"🔮 **RAMALAN AI** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
-            await update.message.reply_text("Dukunnya pusing (API Andre Error).")
+            await update.message.reply_text(f"Dukunnya pusing (Error {response.status_code}). Coba lagi nanti.")
 
     except Exception as e:
         print(f"Error System: {e}")
