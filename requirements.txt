@@ -1,5 +1,5 @@
 python-telegram-bot[webhooks]==20.*
-requests[socks]
+requests
 python-dotenv
-google-generativeai
+groq
 Pillow
