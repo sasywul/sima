@@ -6,57 +6,65 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
-
-from telegram import Update
-from telegram.ext import ContextTypes
-import requests
 import os
 
-# --- FUNGSI START ---
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    await update.message.reply_text(f"Halo Kak {user.first_name}! 👋\n\nKirim fotomu, nanti saya ramal pakai AI GPTNano (Spesialis Gambar)! 🔮")
-
-# --- FUNGSI TRAWANG (ANDRE API - GPTNANO) ---
+# --- FUNGSI TRAWANG UTAMA ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
-    # 1. Kasih status "typing"
+    # 1. Kasih status loading
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
 
-    try:
-        # 2. Ambil Link Gambar dari Telegram
-        photo_file = await update.message.photo[-1].get_file()
-        image_url = photo_file.file_path
+    file_sementara = f"temp_{user.id}.jpg"
 
-        # 3. Tembak API Andre (Versi GPTNano)
-        # Endpoint ini punya parameter 'imageUrl' (Lihat screenshot Anda)
+    try:
+        # 2. Download Foto dari Telegram ke Railway (Sementara)
+        photo_file = await update.message.photo[-1].get_file()
+        await photo_file.download_to_drive(file_sementara)
+
+        # 3. Upload ke Telegra.ph (Biar jadi Link Publik)
+        public_url = upload_to_telegraph(file_sementara)
+
+        if not public_url:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+            await update.message.reply_text("Gagal memproses gambar (Telegraph Error). Coba lagi.")
+            # Hapus file temp
+            if os.path.exists(file_sementara):
+                os.remove(file_sementara)
+            return
+
+        # 4. Tembak API Andre (GPTNano)
+        # Sekarang Andre API bisa baca linknya karena dari Telegra.ph
         url_api = "https://magma-api.biz.id/ai/gptnano"
         
         payload = {
-            "prompt": "Deskripsikan orang di foto ini. Ramal sifat, percintaan, dan keuangannya dengan gaya dukun lucu dan sarkas.",
-            "imageUrl": image_url 
+            "prompt": "Deskripsikan orang di foto ini. Ramal sifat, percintaan, dan keuangannya dengan gaya dukun lucu sarkas.",
+            "imageUrl": public_url 
         }
 
-        # Kirim request (GET)
+        # Kirim Request
         response = requests.get(url_api, params=payload)
         data = response.json()
 
-        # 4. Ambil Hasilnya
-        # Format JSON: data['result']['response']
+        # 5. Bersih-bersih file sampah
+        if os.path.exists(file_sementara):
+            os.remove(file_sementara)
+
+        # 6. Tampilkan Hasil
         if data.get('status') == True:
             hasil_teks = data['result']['response']
             
-            # Kirim Balasan
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
             await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
-            await update.message.reply_text("Waduh, dukunnya gagal konek. Coba kirim foto lain.")
+            await update.message.reply_text("Dukunnya lagi pusing (API Andre Error). Coba kirim foto lain.")
 
     except Exception as e:
-        print(f"Error: {e}")
-        await update.message.reply_text("😵 Maaf, ada gangguan sinyal ke dunia gaib (API Error).")
+        print(f"Error System: {e}")
+        if os.path.exists(file_sementara):
+            os.remove(file_sementara)
+        await update.message.reply_text("😵 Ada gangguan teknis.")
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
