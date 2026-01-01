@@ -6,7 +6,15 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
+import google.generativeai as genai
+from PIL import Image
+import io
+import os
 
+# --- KONFIGURASI AI ---
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
@@ -91,6 +99,7 @@ def generate_jadwal_view(token, nama, kode_khusus):
 # ==========================================
 # 3. HANDLERS
 # ==========================================
+
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Log Start
     asyncio.create_task(asyncio.to_thread(log_activity, update.effective_user, "/start"))
@@ -101,8 +110,59 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ <code>/nilai NIM PASS</code> - Cek Transkrip\n"
         "3️⃣ <code>/rekap NIM PASS</code> - Cek Rekap Absensi\n"
         "4️⃣ <code>/auto_khs NIM PASS</code> - Isi Otomatis BPM\n"
+        
     )
     await update.message.reply_text(msg, parse_mode="HTML")
+
+ # --- FUNGSI TRAWANG WAJAH (AI) ---
+async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1. Cek dulu apakah kuncinya ada
+    if not GEMINI_KEY:
+        await update.message.reply_text("⚠️ Waduh, API Key AI belum dipasang di Railway bos.")
+        return
+
+    user = update.effective_user
+    
+    # 2. Kasih status "typing" (sedang mengetik...) biar terlihat hidup
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang aura wajah Kak {user.first_name}...")
+
+    try:
+        # 3. Download Foto dari Chat ke Memori
+        photo_file = await update.message.photo[-1].get_file()
+        img_byte_arr = io.BytesIO()
+        await photo_file.download_to_memory(out=img_byte_arr)
+        img_byte_arr.seek(0)
+        
+        # Buka gambar agar bisa dibaca AI
+        img = Image.open(img_byte_arr)
+
+        # 4. Perintah untuk AI (Prompt)
+        # Anda bisa ganti kata-katanya sesuka hati di sini!
+        prompt = """
+        Lihat foto ini baik-baik. Kamu adalah dukun digital yang lucu, gaul, dan agak sarkas.
+        
+        Tugasmu:
+        1. Komentari ekspresi wajahnya.
+        2. Ramal nasib percintaan dan keuangannya bulan ini berdasarkan wajah itu.
+        3. Kasih satu nasihat konyol.
+        
+        Gunakan bahasa Indonesia santai ala anak muda. Jangan kaku.
+        """
+
+        # 5. Kirim ke Google Gemini
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content([prompt, img])
+        
+        # 6. Kirim Balasan ke User
+        # Hapus pesan "Sedang menerawang..."
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+        # Kirim hasil
+        await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{response.text}", parse_mode="Markdown")
+
+    except Exception as e:
+        print(f"Error AI: {e}")
+        await update.message.reply_text("😵 Mata batin saya lagi error nih (Server AI sibuk). Coba lagi nanti.")   
 
 async def presensi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try: await context.bot.delete_message(update.message.chat_id, update.message.message_id)
