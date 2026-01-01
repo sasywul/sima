@@ -8,38 +8,75 @@ from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
 import os
 
+# --- FUNGSI BANTUAN: UPLOAD KE FREEIMAGE.HOST ---
+def upload_to_freeimage(file_path_local):
+    """
+    Mengupload file ke Freeimage.host sesuai dokumentasi API v1.
+    """
+    try:
+        url_upload = "https://freeimage.host/api/1/upload"
+        # Kunci API dari screenshot kamu
+        api_key = "6d207e02198a847aa98d0a2a901485a5" 
+        
+        # Data wajib sesuai screenshot dokumentasi
+        payload = {
+            'key': api_key,
+            'action': 'upload',
+            'format': 'json'
+        }
+        
+        # Buka file dan kirim sebagai parameter 'source'
+        with open(file_path_local, 'rb') as f:
+            files = {'source': f}
+            response = requests.post(url_upload, data=payload, files=files)
+        
+        # Cek hasil response JSON
+        if response.status_code == 200:
+            data = response.json()
+            # Ambil link dari: data['image']['url'] sesuai contoh JSON
+            if data.get('status_code') == 200:
+                return data['image']['url']
+            else:
+                print(f"Gagal Upload: {data}")
+                return None
+        else:
+            return None
+
+    except Exception as e:
+        print(f"Error Freeimage: {e}")
+        return None
+
 # --- FUNGSI TRAWANG UTAMA ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     # 1. Kasih status loading
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang wajah Kak {user.first_name}...")
+    msg_loading = await update.message.reply_text(f"👁️ Sedang memproses foto Kak {user.first_name}...")
 
     file_sementara = f"temp_{user.id}.jpg"
 
     try:
-        # 2. Download Foto dari Telegram ke Railway (Sementara)
+        # 2. Download Foto dari Telegram
         photo_file = await update.message.photo[-1].get_file()
         await photo_file.download_to_drive(file_sementara)
 
-        # 3. Upload ke Telegra.ph (Biar jadi Link Publik)
-        public_url = upload_to_telegraph(file_sementara)
+        # 3. Upload ke Freeimage.host
+        public_url = upload_to_freeimage(file_sementara)
 
         if not public_url:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text("Gagal memproses gambar (Telegraph Error). Coba lagi.")
-            # Hapus file temp
+            await update.message.reply_text("Gagal upload gambar ke server Freeimage. Coba lagi.")
             if os.path.exists(file_sementara):
                 os.remove(file_sementara)
             return
 
         # 4. Tembak API Andre (GPTNano)
-        # Sekarang Andre API bisa baca linknya karena dari Telegra.ph
+        # Link dari Freeimage.host (public_url) dikirim ke sini
         url_api = "https://magma-api.biz.id/ai/gptnano"
         
         payload = {
-            "prompt": "Deskripsikan orang di foto ini. Ramal sifat, percintaan, dan keuangannya dengan gaya dukun lucu sarkas.",
+            "prompt": "Deskripsikan visual orang di foto ini. Ramal sifat, asmara, dan keuangan minggu ini dengan gaya dukun lucu dan sarkas.",
             "imageUrl": public_url 
         }
 
@@ -47,7 +84,7 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         response = requests.get(url_api, params=payload)
         data = response.json()
 
-        # 5. Bersih-bersih file sampah
+        # 5. Hapus file sampah
         if os.path.exists(file_sementara):
             os.remove(file_sementara)
 
@@ -56,9 +93,9 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             hasil_teks = data['result']['response']
             
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-            await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
+            await update.message.reply_text(f"🔮 **RAMALAN DUKUN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
-            await update.message.reply_text("Dukunnya lagi pusing (API Andre Error). Coba kirim foto lain.")
+            await update.message.reply_text("Dukunnya pusing (API Andre Error).")
 
     except Exception as e:
         print(f"Error System: {e}")
