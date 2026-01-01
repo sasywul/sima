@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
 
-# --- FUNGSI TRAWANG (PAKAI ANDRE API) ---
+# --- FUNGSI TRAWANG (PAKAI NYXS API) ---
 async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
@@ -17,40 +17,39 @@ async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         # 2. Ambil Link Gambar dari Telegram
-        # Kita butuh URL gambar supaya bisa dibaca sama Andre API
         photo_file = await update.message.photo[-1].get_file()
-        
-        # Trik: Ambil URL file langsung dari server Telegram
-        # (Format: https://api.telegram.org/file/bot<TOKEN>/<FILE_PATH>)
         image_url = photo_file.file_path
-
-        # 3. Tembak API Andre (Magma API)
-        # Sesuai screenshot yang kamu kirim
-        url_api = "https://magma-api.biz.id/ai/gptnano"
         
+        # 3. Tembak API Nyxs (Spesialis Vision)
+        # API ini gratis dan menggunakan Gemini Vision di belakang layar
+        url_api = "https://api.nyxs.pw/ai/gemini-vision"
+        
+        prompt_teks = "Deskripsikan orang di foto ini dengan gaya dukun lucu dan sarkas. Ramal keuangannya minggu ini. Pakai bahasa gaul."
+
         payload = {
-            "prompt": "Deskripsikan gambar ini dengan gaya dukun lucu dan sarkas. Ramal keuangannya.",
-            "imageUrl": image_url
+            "text": prompt_teks,
+            "image": image_url
         }
 
-        # Kirim request (GET)
+        # Kirim request
         response = requests.get(url_api, params=payload)
         data = response.json()
 
-        # 4. Ambil Hasilnya
-        # Sesuai contoh JSON di screenshot: data['result']['response']
+        # 4. Cek Hasil
+        # Format response Nyxs biasanya: {'status': True, 'result': '...teks...'}
         if data.get('status') == True:
-            hasil_teks = data['result']['response']
+            hasil_teks = data['result']
             
             # Kirim Balasan
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
             await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil_teks}", parse_mode="Markdown")
         else:
-            await update.message.reply_text("Dukunnya lagi pusing (API Error). Coba lagi nanti.")
+            await update.message.reply_text("😵 Dukunnya lagi merem (API Gagal). Coba foto lain.")
 
     except Exception as e:
         print(f"Error: {e}")
-        await update.message.reply_text("😵 Gagal terhubung ke Andre API. Coba kirim foto lain.")
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+        await update.message.reply_text("😵 Koneksi ke server dukun terputus. Coba lagi nanti.")
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
