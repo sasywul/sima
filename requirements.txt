@@ -1,5 +1,5 @@
 python-telegram-bot[webhooks]==20.*
 requests
 python-dotenv
-groq
+google-generativeai
 Pillow

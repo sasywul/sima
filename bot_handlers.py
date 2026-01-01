@@ -6,21 +6,71 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import SESSION_EXPIRE, LOG_BOT_TOKEN, ADMIN_ID
 import api_service as api
-from groq import Groq
+import google.generativeai as genai
 from PIL import Image
 import io
 import os
-import base64
 
-# --- KONFIGURASI GROQ ---
-GROQ_KEY = os.getenv("GROQ_API_KEY")
-client = None
-if GROQ_KEY:
-    client = Groq(api_key=GROQ_KEY)
+# --- KONFIGURASI AI ---
+# Mengambil kunci dari Railway (Variable: GEMINI_API_KEY)
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# --- FUNGSI BANTUAN: UBAH GAMBAR JADI KODE ---
-def encode_image(image_bytes):
-    return base64.b64encode(image_bytes).decode('utf-8')
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+
+    # --- FUNGSI TRAWANG (AI GEMINI) ---
+async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 1. Cek Kunci
+    if not GEMINI_KEY:
+        await update.message.reply_text("⚠️ Waduh, API Key Google belum dipasang di Railway bos.")
+        return
+
+    user = update.effective_user
+    
+    # 2. Kasih efek "Sedang mengetik..." biar keren
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    msg_loading = await update.message.reply_text(f"👁️ Sedang menerawang aura wajah Kak {user.first_name}...")
+
+    try:
+        # 3. Download Foto dari Chat
+        # Ambil foto resolusi paling tinggi
+        photo_file = await update.message.photo[-1].get_file()
+        img_byte_arr = io.BytesIO()
+        await photo_file.download_to_memory(out=img_byte_arr)
+        img_byte_arr.seek(0)
+        
+        # Buka gambar pakai library Pillow
+        img = Image.open(img_byte_arr)
+
+        # 4. Mantra (Prompt) untuk AI
+        prompt = """
+        Lihat foto ini baik-baik. Kamu adalah dukun digital yang lucu, gaul, dan agak sarkas.
+        
+        Tugasmu:
+        1. Komentari ekspresi wajahnya (misal: lagi sedih, bahagia, atau muka bantal).
+        2. Ramal nasib percintaan dan keuangannya minggu ini.
+        3. Kasih satu nasihat konyol.
+        
+        Gunakan bahasa Indonesia santai ala anak muda. Jangan kaku.
+        """
+
+        # 5. Kirim ke Google Gemini
+        # Menggunakan model 'gemini-1.5-flash' yang gratis di AI Studio
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content([prompt, img])
+        
+        # 6. Kirim Balasan
+        # Hapus pesan "Sedang menerawang..."
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+        
+        # Kirim hasil ramalan
+        await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{response.text}", parse_mode="Markdown")
+
+    except Exception as e:
+        # Kalau ada error, bot akan lapor
+        print(f"Error AI: {e}")
+        await update.message.reply_text("😵 Mata batin saya lagi rabun (Error koneksi ke Google). Coba kirim foto yang lebih jelas atau coba lagi nanti.")
+
 # ==========================================
 # 1. HELPER: LOGGING KE ADMIN
 # ==========================================
@@ -170,8 +220,6 @@ async def presensi_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.answer(f"❌ {res.get('message')}", show_alert=True)
 
-
-
 async def nilai_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) != 2: return await update.message.reply_text("Format: `/nilai NIM PASS`")
     msg = await update.message.reply_text("⏳ Ambil Nilai...")
@@ -209,59 +257,3 @@ async def auto_khs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Log Auto KHS
     asyncio.create_task(asyncio.to_thread(log_activity, update.effective_user, "/auto_khs", context.args[0], res[:50] + "..."))
-
-    # --- HANDLER TRAWANG FOTO ---
-async def trawang_foto_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 1. Cek Key
-    if not client:
-        await update.message.reply_text("⚠️ API Key Groq belum dipasang bos.")
-        return
-
-    user = update.effective_user
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    msg_loading = await update.message.reply_text(f"👁️ Menerawang wajah Kak {user.first_name} pakai Llama Vision...")
-
-    try:
-        # 2. Download Foto ke Memori
-        photo_file = await update.message.photo[-1].get_file()
-        img_byte_arr = io.BytesIO()
-        await photo_file.download_to_memory(out=img_byte_arr)
-        img_byte_arr.seek(0)
-        
-        # 3. Ubah jadi Base64 (Syarat Groq)
-        base64_image = encode_image(img_byte_arr.getvalue())
-
-        # 4. Prompt (Mantra Dukun)
-        prompt = """
-        Kamu adalah dukun gaul yang lucu dan sarkas. 
-        Lihat foto ini. Analisis ekspresinya, lalu ramal nasib percintaan dan keuangannya.
-        Kasih nasihat konyol. Pakai bahasa Indonesia gaul.
-        """
-
-        # 5. Kirim ke Groq
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
-            ],
-            model="llava-v1.5-7b-4096-preview",
-        )
-
-        # 6. Balas ke User
-        hasil = chat_completion.choices[0].message.content
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
-        await update.message.reply_text(f"🔮 **HASIL TERAWANGAN** 🔮\n\n{hasil}", parse_mode="Markdown")
-
-    except Exception as e:
-        print(f"Error Groq: {e}")
-        await update.message.reply_text("😵 Waduh, server dukunnya pusing. Coba kirim foto lain.")
