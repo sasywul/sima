@@ -90,21 +90,35 @@ def generate_jadwal_view(token, nama, kode_khusus):
     return text, InlineKeyboardMarkup(keyboard) if keyboard else None
 
 async def skpi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 2:
-        return await update.message.reply_text(
-            "Format: `/skpi NIM PASSWORD`",
-            parse_mode="Markdown"
+    # 1. Cek Argumen (NIM & Password)
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "⚠️ <b>Format Salah!</b>\nGunakan: <code>/skpi [NIM] [PASSWORD]</code>",
+            parse_mode='HTML'
         )
+        return
 
-    msg = await update.message.reply_text("⏳ Mengambil data SKPI...")
+    nim = args[0]
+    password = args[1]
+    
+    # 2. Kasih status "Typing" biar user tau bot bekerja
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    msg_loading = await update.message.reply_text("⏳ Sedang mengambil data SKPI...")
 
-    res = await asyncio.to_thread(
-        api.fetch_skpi_web,
-        context.args[0],
-        context.args[1]
+    # 3. Panggil API Service
+    # (Pastikan di atas sudah ada: import api_service as api)
+    hasil = api.fetch_skpi_web(nim, password)
+    
+    # 4. Hapus pesan loading
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_loading.message_id)
+
+    # 5. KIRIM HASIL DENGAN MODE HTML (INI KUNCINYA!)
+    await update.message.reply_text(
+        hasil, 
+        parse_mode='Markdown',  # <--- WAJIB ADA BIAR TIDAK MUNCUL TAG <b>
+        disable_web_page_preview=True
     )
-
-    await msg.edit_text(res, parse_mode="Markdown")
 
 
 # ==========================================

@@ -328,21 +328,18 @@ def scan_and_solve_khs(session):
 # ==========================================
 # 6. SKPI (WEB SCRAPING)
 # ==========================================
-
 def fetch_skpi_web(nim, password):
     """
-    Ambil & parse data SKPI dari apps.usm.ac.id
+    Ambil & parse data SKPI dengan Filter Anti-Double (Strict Mode)
     """
+    # 1. LOGIN KE SIMA
     session = get_web_session(nim, password)
-
     if session == "WRONG_PASS":
         return "❌ *Password Salah!*"
     if not session:
-        return "❌ Gagal login ke SIMA."
+        return "❌ *Gagal Login SIMA* (Server Down)."
 
-    # =========================
-    # ROUTE KE APLIKASI SKPI
-    # =========================
+    # 2. ROUTING KE APP SKPI
     try:
         session.post(
             "https://sima.usm.ac.id/app/routes",
@@ -354,73 +351,91 @@ def fetch_skpi_web(nim, password):
             headers=HEADERS_BROWSER,
             timeout=15
         )
-    except Exception as e:
-        return f"❌ Gagal routing ke SKPI: {e}"
+    except:
+        return "❌ Gagal koneksi ke server SKPI."
 
-    # =========================
-    # AMBIL HALAMAN SKPI
-    # =========================
+    # 3. AMBIL DATA & PARSING
     try:
-        url = "https://apps.usm.ac.id/skpi/mahasiswa/daftar_kegiatan"
-        r = session.get(url, headers=HEADERS_BROWSER, timeout=20)
+        url_target = "https://apps.usm.ac.id/skpi/mahasiswa/daftar_kegiatan"
+        r = session.get(url_target, headers=HEADERS_BROWSER, timeout=20)
 
-        if "login" in r.text.lower():
-            return "❌ NIM / Password salah."
+        if "login" in r.url.lower():
+             return "❌ Sesi habis. Coba lagi."
 
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # =========================
-        # TARGET TAB NILAI SKPI
-        # =========================
-        tab_nilai = soup.find("div", {"id": "tab_2"})
-        if not tab_nilai:
-            return "❌ Tab Nilai SKPI tidak ditemukan."
+        # --- CARI TABEL ---
+        target_table = None
+        
+        # Prioritas 1: Cari Div Tab 2
+        tab_2 = soup.find("div", {"id": "tab_2"})
+        if tab_2: target_table = tab_2.find("table")
+        
+        # Prioritas 2: Cari manual by text
+        if not target_table:
+            for tbl in soup.find_all("table"):
+                if "Bobot SKP" in tbl.get_text():
+                    target_table = tbl
+                    break
 
-        table = tab_nilai.find("table")
-        if not table:
-            return "❌ Tabel Nilai SKPI tidak ditemukan."
+        if not target_table:
+            return "📭 *DATA KOSONG*\nBelum ada kegiatan SKPI yang tervalidasi."
 
-        rows = table.find("tbody").find_all("tr")
+        # --- PARSING ROW (STRICT MODE) ---
+        tbody = target_table.find("tbody")
+        rows = tbody.find_all("tr") if tbody else target_table.find_all("tr")
 
         data = []
-        current_category = None
+        current_cat = "Kegiatan Lainnya"
         total_skp = 0
 
         for row in rows:
             cols = row.find_all("td")
+            if not cols: continue
 
-            # BARIS KATEGORI (colspan)
-            if len(cols) == 1 and cols[0].has_attr("colspan"):
-                text = cols[0].get_text(strip=True)
-                if "Jumlah SKP" not in text and "Total Nilai" not in text:
-                    current_category = text
+            text_first = cols[0].get_text(strip=True).lower()
+            
+            # Skip baris subtotal/header sampah
+            if "jumlah skp" in text_first or "total nilai" in text_first: continue
+
+            # DETEKSI KATEGORI (Ciri: Colspan)
+            if len(cols) == 1 or (cols[0].has_attr("colspan") and len(cols) < 4):
+                raw_cat = cols[0].get_text(strip=True)
+                if raw_cat: current_cat = raw_cat
                 continue
 
-            # BARIS DATA KEGIATAN
-            if len(cols) == 4:
+            # DETEKSI DATA (Ciri: 4 Kolom)
+            if len(cols) >= 4:
                 nama = cols[1].get_text(strip=True)
                 peran = cols[2].get_text(strip=True)
-                bobot = cols[3].get_text(strip=True)
+                bobot_str = cols[3].get_text(strip=True)
 
-                try:
-                    total_skp += int(bobot)
-                except:
-                    pass
+                # --- FILTER PENTING (HAPUS YANG DOUBLE) ---
+                # 1. Skip jika Nama kosong atau cuma "-"
+                if not nama or nama == "-": continue
+                # 2. Skip jika Nama isinya Header Table
+                if "nama kegiatan" in nama.lower(): continue
+                # 3. Skip jika Nama isinya cuma ANGKA (Ini biang kerok double-nya!)
+                if nama.isdigit(): continue 
 
+                try: val = int(bobot_str)
+                except: val = 0
+                
+                total_skp += val
                 data.append({
-                    "kategori": current_category,
+                    "cat": current_cat,
                     "nama": nama,
                     "peran": peran,
-                    "bobot": bobot
+                    "skp": val
                 })
 
-        # =========================
-        # FORMAT OUTPUT TELEGRAM
-        # =========================
+        # ==========================================
+        # FORMAT OUTPUT (TREE STYLE BERSIH)
+        # ==========================================
         if not data:
             return (
                 "📜 *DAFTAR KEGIATAN SKPI*\n\n"
-                "ℹ️ Belum ada kegiatan yang tervalidasi.\n"
+                "ℹ️ Belum ada kegiatan tervalidasi.\n"
                 f"📊 *Total SKP*: {total_skp}"
             )
 
@@ -428,19 +443,20 @@ def fetch_skpi_web(nim, password):
         last_cat = None
 
         for d in data:
-            if d["kategori"] != last_cat:
-                result += f"🏷️ *{d['kategori']}*\n"
-                last_cat = d["kategori"]
+            # Ganti Kategori
+            if d['cat'] != last_cat:
+                result += f"🏷️ *{d['cat']}*\n"
+                last_cat = d['cat']
 
+            # Item
             result += (
                 f"• {d['nama']}\n"
                 f"  ├ Sebagai : {d['peran']}\n"
-                f"  └ Bobot   : {d['bobot']} SKP\n\n"
+                f"  └ Bobot   : {d['skp']} SKP\n\n"
             )
 
         result += f"📊 *Total SKP*: {total_skp}"
-
         return result.strip()
 
     except Exception as e:
-        return f"❌ Error parsing SKPI: {e}"
+        return f"❌ Error: {str(e)}"
