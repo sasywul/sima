@@ -13,7 +13,8 @@ def main():
     app.add_handler(CommandHandler("nilai", h.nilai_cmd))
     app.add_handler(CommandHandler("rekap", h.rekap_cmd))
     app.add_handler(CommandHandler("auto_khs", h.auto_khs_cmd))
-    
+    app.add_handler(CommandHandler("skpi", h.skpi_cmd))
+
     app.add_handler(CallbackQueryHandler(h.presensi_callback))
 
     # --- LOGIKA AUTO-SWITCH (POLLING vs WEBHOOK) ---

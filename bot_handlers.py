@@ -89,6 +89,24 @@ def generate_jadwal_view(token, nama, kode_khusus):
 
     return text, InlineKeyboardMarkup(keyboard) if keyboard else None
 
+async def skpi_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2:
+        return await update.message.reply_text(
+            "Format: `/skpi NIM PASSWORD`",
+            parse_mode="Markdown"
+        )
+
+    msg = await update.message.reply_text("⏳ Mengambil data SKPI...")
+
+    res = await asyncio.to_thread(
+        api.fetch_skpi_web,
+        context.args[0],
+        context.args[1]
+    )
+
+    await msg.edit_text(res, parse_mode="Markdown")
+
+
 # ==========================================
 # 3. HANDLERS
 # ==========================================
@@ -102,6 +120,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ <code>/nilai NIM PASS</code> - Cek Transkrip\n"
         "3️⃣ <code>/rekap NIM PASS</code> - Cek Rekap Absensi\n"
         "4️⃣ <code>/auto_khs NIM PASS</code> - Isi Otomatis BPM\n"
+        "4️⃣ <code>/skpi NIM PASS</code> - \n"
     )
     await update.message.reply_text(msg, parse_mode="HTML")
 

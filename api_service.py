@@ -1,6 +1,8 @@
 import requests
 import re
 from config import BASE_URL, PROXIES, HEADERS_ANDROID, HEADERS_BROWSER
+from bs4 import BeautifulSoup
+
 
 # ==========================================
 # 1. HELPER FORMATTER (DARI CODE MANTAP)
@@ -323,3 +325,122 @@ def scan_and_solve_khs(session):
     
     if not results: return "✅ Proses Selesai. BPM terisi."
     return "\n".join(results) + "\n\n✅ *Selesai!* Coba cek /nilai sekarang."
+# ==========================================
+# 6. SKPI (WEB SCRAPING)
+# ==========================================
+
+def fetch_skpi_web(nim, password):
+    """
+    Ambil & parse data SKPI dari apps.usm.ac.id
+    """
+    session = get_web_session(nim, password)
+
+    if session == "WRONG_PASS":
+        return "❌ *Password Salah!*"
+    if not session:
+        return "❌ Gagal login ke SIMA."
+
+    # =========================
+    # ROUTE KE APLIKASI SKPI
+    # =========================
+    try:
+        session.post(
+            "https://sima.usm.ac.id/app/routes",
+            data={
+                "id_aplikasi": "99806946277720066",
+                "level_key": "f6f9ab8e-ec73-11ec-8326-56cb879f2d55",
+                "id_bidang": "1"
+            },
+            headers=HEADERS_BROWSER,
+            timeout=15
+        )
+    except Exception as e:
+        return f"❌ Gagal routing ke SKPI: {e}"
+
+    # =========================
+    # AMBIL HALAMAN SKPI
+    # =========================
+    try:
+        url = "https://apps.usm.ac.id/skpi/mahasiswa/daftar_kegiatan"
+        r = session.get(url, headers=HEADERS_BROWSER, timeout=20)
+
+        if "login" in r.text.lower():
+            return "❌ NIM / Password salah."
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # =========================
+        # TARGET TAB NILAI SKPI
+        # =========================
+        tab_nilai = soup.find("div", {"id": "tab_2"})
+        if not tab_nilai:
+            return "❌ Tab Nilai SKPI tidak ditemukan."
+
+        table = tab_nilai.find("table")
+        if not table:
+            return "❌ Tabel Nilai SKPI tidak ditemukan."
+
+        rows = table.find("tbody").find_all("tr")
+
+        data = []
+        current_category = None
+        total_skp = 0
+
+        for row in rows:
+            cols = row.find_all("td")
+
+            # BARIS KATEGORI (colspan)
+            if len(cols) == 1 and cols[0].has_attr("colspan"):
+                text = cols[0].get_text(strip=True)
+                if "Jumlah SKP" not in text and "Total Nilai" not in text:
+                    current_category = text
+                continue
+
+            # BARIS DATA KEGIATAN
+            if len(cols) == 4:
+                nama = cols[1].get_text(strip=True)
+                peran = cols[2].get_text(strip=True)
+                bobot = cols[3].get_text(strip=True)
+
+                try:
+                    total_skp += int(bobot)
+                except:
+                    pass
+
+                data.append({
+                    "kategori": current_category,
+                    "nama": nama,
+                    "peran": peran,
+                    "bobot": bobot
+                })
+
+        # =========================
+        # FORMAT OUTPUT TELEGRAM
+        # =========================
+        if not data:
+            return (
+                "📜 *DAFTAR KEGIATAN SKPI*\n\n"
+                "ℹ️ Belum ada kegiatan yang tervalidasi.\n"
+                f"📊 *Total SKP*: {total_skp}"
+            )
+
+        result = "📜 *DAFTAR KEGIATAN SKPI*\n\n"
+        last_cat = None
+
+        for d in data:
+            if d["kategori"] != last_cat:
+                result += f"🏷️ *{d['kategori']}*\n"
+                last_cat = d["kategori"]
+
+            result += (
+                f"• {d['nama']}\n"
+                f"  ├ Sebagai : {d['peran']}\n"
+                f"  └ Bobot   : {d['bobot']} SKP\n\n"
+            )
+
+        result += f"📊 *Total SKP*: {total_skp}"
+
+        return result.strip()
+
+    except Exception as e:
+        return f"❌ Error parsing SKPI: {e}"
