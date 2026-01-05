@@ -134,7 +134,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "2️⃣ <code>/nilai NIM PASS</code> - Cek Transkrip\n"
         "3️⃣ <code>/rekap NIM PASS</code> - Cek Rekap Absensi\n"
         "4️⃣ <code>/auto_khs NIM PASS</code> - Isi Otomatis BPM\n"
-        "4️⃣ <code>/skpi NIM PASS</code> - \n"
+        "4️⃣ <code>/skpi NIM PASS</code> - Cek Point SKPI \n"
     )
     await update.message.reply_text(msg, parse_mode="HTML")
 

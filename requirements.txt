@@ -2,3 +2,4 @@ python-telegram-bot[webhooks]==20.*
 requests
 python-dotenv
 beautifulsoup4
+PySocks
